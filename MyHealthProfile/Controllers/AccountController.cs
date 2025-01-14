@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
 using MyHealthProfile.Extensions;
+using MyHealthProfile.Models;
 using MyHealthProfile.Models.Dtos;
 using MyHealthProfile.Repositories.Account;
 
@@ -25,9 +26,9 @@ namespace MyHealthProfile.Controllers
         [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status409Conflict)]
         [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status422UnprocessableEntity)]
         [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status500InternalServerError)]
-        public async Task<GenericResult<RegisterResponseDto>> RegisterAsync(RegisterDto request)
+        public async Task<GenericResult<RegisterResponseDto>> RegisterAsync([FromForm] RegisterDto request, IFormFile? file)
         {
-            var results = await _identityService.RegisterAsync(request);
+            var results = await _identityService.RegisterAsync(request,file);
             Response.StatusCode = StatusCodes.Status201Created;
             return results.ToCreatedResult();
         }
@@ -59,30 +60,54 @@ namespace MyHealthProfile.Controllers
 
         [Authorize]
         [HttpGet]
-        public IActionResult Test(   )
+        public IActionResult Test()
         {
             return Ok("true");
         }
 
 
-        // [HttpPut("ForgetPassword")]
-        //[ProducesResponseType(StatusCodes.Status200OK)]
-        //[ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status404NotFound)]
-        //[ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status422UnprocessableEntity)]
-        //[ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status500InternalServerError)]
-        //public async Task<GenericResult<ForgotPasswordResponse>> ForgetPasswordAsync(ForgotPasswordRequest request)
-        //    {
-        //        return (await _identityService.ForgetPasswordAsync(request)).ToSuccessResult();
-        //    }
-        //    [HttpPut("ResetPassword")]
-        //    [ProducesResponseType(StatusCodes.Status204NoContent)]
-        //    [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status404NotFound)]
-        //    [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status422UnprocessableEntity)]
-        //    [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status500InternalServerError)]
-        //    public async Task<IActionResult> ResetPasswordAsync(ResetPasswordRequest request)
-        //    {
-        //        await _identityService.ResetPasswordAsync(request);
-        //        return NoContent();
-        //    }
+        [HttpPut("ForgetPassword")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status422UnprocessableEntity)]
+        [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<GenericResult<string>> ForgetPasswordAsync(string Email)
+        {
+            var result = await _identityService.ForgetPasswordAsync(Email);
+            return result.ToSuccessResult();
+
+        }
+        [HttpPut("SetPassword")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status422UnprocessableEntity)]
+        [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<GenericResult<string>> SetPasswordAsync(ResetPasswordRequestDto request)
+        {
+            var result = await _identityService.setNewPasswordAsync(request);
+            return result.ToSuccessResult();
+        }
+        [Authorize]
+        [HttpGet("GetProfile")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status422UnprocessableEntity)]
+        [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<GenericResult<PatientDto>> GetProfile()
+        {
+            var result = await _identityService.GetUserProfile();
+            return result.ToSuccessResult();
+        }
+        [Authorize]
+        [HttpPut("UpdateProfile")]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status422UnprocessableEntity)]
+        [ProducesResponseType(typeof(GenericResult<object>), StatusCodes.Status500InternalServerError)]
+        public async Task<GenericResult<PatientDto>> UpdateProfile([FromForm] PatientUpdateDTO request, IFormFile? file)
+        {
+            var result = await _identityService.UpdateUserProfile(request,file);
+            return result.ToSuccessResult();
+        }
     }
 }

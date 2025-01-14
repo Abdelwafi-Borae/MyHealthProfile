@@ -1,4 +1,6 @@
-﻿using MyHealthProfile.Repositories.Account;
+﻿using AutoMapper;
+using DoodiServicesShopingCartAPI;
+using MyHealthProfile.Repositories.Account;
 using MyHealthProfile.Services;
 using MyHealthProfile.Services.Interfaces;
 
@@ -12,6 +14,9 @@ namespace MyHealthProfile
             services.AddScoped<ICurrentUserService, CurrentUserService>();
             services.AddScoped<IIdentityService, IdentityService>();
 
+            IMapper mapper = MappingConfig.RegisterMap().CreateMapper();
+            services.AddSingleton(mapper);
+            services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 
 
             return services;

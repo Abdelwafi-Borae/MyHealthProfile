@@ -20,6 +20,12 @@ using static System.Net.WebRequestMethods;
 using MimeKit;
 using MailKit.Net.Smtp;
 using MailKit.Security;
+using MyHealthProfile.Persistence;
+using Org.BouncyCastle.Bcpg;
+using Org.BouncyCastle.Asn1.Ocsp;
+using Microsoft.EntityFrameworkCore;
+using System.Net.WebSockets;
+using AutoMapper;
 
 
 namespace MyHealthProfile.Repositories.Account
@@ -27,20 +33,25 @@ namespace MyHealthProfile.Repositories.Account
     public class IdentityService : IIdentityService
     {
         private readonly ICurrentUserService _currentUserService;
-        //private readonly AppDbContext _appDbContext;
+        private readonly IMapper _mapper;
+        private readonly ApplicationDbContext _appDbContext;
         private readonly UserManager<Patient> _userManager;
         private readonly IConfiguration _configuration;
-        public IdentityService(/*AppDbContext appDbContext, */
-            ICurrentUserService currentUserService, UserManager<Patient> userManager, IConfiguration configuration)
+        private readonly IFileManager _fileManager;
+          
+        public IdentityService(ApplicationDbContext appDbContext, IFileManager fileManager,
+        ICurrentUserService currentUserService, UserManager<Patient> userManager, IConfiguration configuration, IMapper mapper)
         {
-            // _appDbContext = appDbContext;
+            _fileManager = fileManager;
+            _mapper = mapper;
+            _appDbContext = appDbContext;
             _userManager = userManager;
             _configuration = configuration;
             _currentUserService = currentUserService;
         }
 
 
-        public async Task<RegisterResponseDto> RegisterAsync(RegisterDto register)
+        public async Task<RegisterResponseDto> RegisterAsync(RegisterDto register, IFormFile file)
         {
 
             var validator = new RegisterVAlidato().Validate(register);
@@ -60,6 +71,8 @@ namespace MyHealthProfile.Repositories.Account
                 EmailOtp = otp,
                 EmailOtpExpiration = DateTime.UtcNow.AddMinutes(5)
             };
+            string LogoURL = _fileManager.CreateUpdateFile(file,"");
+            applicationUser.PhotoUrl = LogoURL;
 
             var existingUser = await GetExistingUser(applicationUser);
             if (existingUser is not null)
@@ -68,6 +81,7 @@ namespace MyHealthProfile.Repositories.Account
 
             }
             //image url logic not yet
+
             IdentityResult result = await _userManager.CreateAsync(applicationUser, register.Password);
             if (!result.Succeeded) throw result.ToValidationException();
 
@@ -116,7 +130,7 @@ namespace MyHealthProfile.Repositories.Account
                 throw new ForbiddenAccessException("Invalid Credentials");
 
 
-            var tokenString = GenerateJWTToken(model.Email/*, user.Role*/);
+            var tokenString = GenerateJWTToken(model.Email);
 
 
 
@@ -125,31 +139,49 @@ namespace MyHealthProfile.Repositories.Account
 
 
 
-        public Task<TokenResponse> GetUserProfile(LoginDto register)
+        public async Task<PatientDto> GetUserProfile()
         {
-            throw new NotImplementedException();
+
+            var xx = _currentUserService.Email;
+            var x = await _userManager.FindByEmailAsync(_currentUserService.Email);
+            return _mapper.Map<PatientDto>(x);
+
         }
 
-        public Task<TokenResponse> UpdateUserProfile(LoginDto register)
+        public async Task<PatientDto> UpdateUserProfile(PatientUpdateDTO request, IFormFile? file)
         {
+            var user = await _userManager.FindByEmailAsync(_currentUserService.Email);
+            _ = user ?? throw new NotFoundException("Patient Not exist");
+            user.PhoneNumber = request.Phone ?? user.PhoneNumber;
+            user.Address = request.Address ?? user.Address;
+            if (file != null && file.Length > 0)
+            {
+                string LogoURL =_fileManager.CreateUpdateFile(file, user.PhotoUrl);
+                user.PhotoUrl = LogoURL;
+            }
+            var result = await _userManager.UpdateAsync(user);
+            _ = result ?? throw new NotFoundException("update failed");
+
+            return _mapper.Map<PatientDto>(user);
+
             throw new NotImplementedException();
         }
-        public async Task<bool> ForgetPasswordAsync(string Email)
+        public async Task<string> ForgetPasswordAsync(string Email)
         {
             if (Email == null) throw new BadRequestException("email shoud be provide");
             var user = await _userManager.FindByEmailAsync(Email.Trim().Normalize());
             _ = user ?? throw new NotFoundException("Email not found");
-            if (user.Id != _currentUserService.UserId) throw new BadRequestException("Not Authorized");
-            await _userManager.RemovePasswordAsync(user);
+            //if (user.Id != _currentUserService.UserId) throw new BadRequestException("Not Authorized");
+            //await _userManager.RemovePasswordAsync(user);
             string otp = GenerateOtp();
             user.PasswordOtpExpiration = DateTime.UtcNow.AddMinutes(10);
             user.PasswordOtp = otp;
             user.IsPaswordSet = false;
             await _userManager.UpdateAsync(user);
-
-            return true;
+            await SendOtpEmailAsync(Email, otp);
+            return "OPT Sent To your email To Set New Password";
         }
-        public async Task<bool> setNewPasswordAsync(ResetPasswordRequestDto request)
+        public async Task<string> setNewPasswordAsync(ResetPasswordRequestDto request)
         {
             var validator = new ResetPasswordRequestValidator().Validate(request);
             if (!validator.IsValid) throw new ValidationException(validator.Errors);
@@ -162,13 +194,13 @@ namespace MyHealthProfile.Repositories.Account
 
 
 
-        private async Task<bool> setPasswordAsync(ResetPasswordRequestDto request)
+        private async Task<string> setPasswordAsync(ResetPasswordRequestDto request)
         {
             var user = await _userManager.FindByEmailAsync(request.Email.Trim().Normalize());
             _ = user ?? throw new NotFoundException("Email not found");
 
             //if (!await _userManager.HasPasswordAsync(user)) throw new ForbiddenAccessException("No password to be chagned");
-            if (!user.IsEmailVerified) throw new ForbiddenAccessException("Email is not  Verified");
+            if (user.IsPaswordSet) throw new ForbiddenAccessException("Password  Already Set ");
             if (user == null || user.PasswordOtp != request.OPT || user.PasswordOtpExpiration < DateTime.UtcNow) throw new ValidationException("OTP", "Code is not valid");
             var resetPasswordToken = await _userManager.GeneratePasswordResetTokenAsync(user);
             var result = await _userManager.ResetPasswordAsync(user, resetPasswordToken, request.Password);
@@ -177,8 +209,9 @@ namespace MyHealthProfile.Repositories.Account
             user.PasswordOtpExpiration = null;
             user.IsPaswordSet = true;
 
-            await _userManager.UpdateAsync(user);
-            return true;
+            var Updateresult = await _userManager.UpdateAsync(user);
+            if (!Updateresult.Succeeded) throw result.ToValidationException();
+            return "New Password Set Successfuley";
 
 
 
@@ -230,20 +263,20 @@ namespace MyHealthProfile.Repositories.Account
         }
 
 
-        private string GenerateJWTToken(string Email /*,string Role*/)
+        private string GenerateJWTToken(string Email)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.UTF8.GetBytes("7KGXiGLRklf5Fa3jEo2ZS7HOKs1YurR0YRPcZVgspzg"/*_configuration.GetSection("JWT:TokenKey").Value!*/);
+            var key = Encoding.UTF8.GetBytes(_configuration.GetSection("JWT:TokenKey").Value!);
 
             List<Claim> claims = new List<Claim>();
             claims.Add(new Claim(ClaimTypes.Email, Email));
-            ///claims.Add(new Claim(ClaimTypes.Role, Role));
+
 
             var tokenDescriptor = new SecurityTokenDescriptor()
             {
                 Subject = new ClaimsIdentity(claims),
                 Expires = DateTime.UtcNow.AddHours(1),
-                Issuer = "MyHealthProfile",//_configuration.GetSection("JWT:Issuer").Value,
+                Issuer = _configuration.GetSection("JWT:Issuer").Value,
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
             };
 
