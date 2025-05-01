@@ -124,7 +124,7 @@ namespace MyHealthProfile.Repositories.Account
 
             var user = await _userManager.FindByEmailAsync(model.Email.Trim().Normalize());
             _ = user ?? throw new ForbiddenAccessException("Invalid Credentials");
-            if (!user.IsEmailVerified) throw new ForbiddenAccessException("Account Not Verfied");
+            //if (!user.IsEmailVerified) throw new ForbiddenAccessException("Account Not Verfied");
 
             if (!await _userManager.CheckPasswordAsync(user, model.Password))
                 throw new ForbiddenAccessException("Invalid Credentials");
